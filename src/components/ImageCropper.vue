@@ -1,162 +1,238 @@
 <template>
   <div class="cropper">
-    <label class="upload">
-      <input type="file" accept="image/*" @change="onFileChange" />
-      <span>Загрузить картинку</span>
-    </label>
+    <div class="cropper__upload-section">
+      <label class="cropper__upload-button">
+        <input
+          type="file"
+          accept="image/*"
+          class="cropper__file-input"
+          @change="handleFileChange"
+        />
+        <span class="cropper__button-text">Загрузить картинку</span>
+      </label>
+
+      <div v-if="error" class="cropper__error">
+        {{ error.message }}
+      </div>
+    </div>
 
     <div
-      class="view"
       ref="viewEl"
-      @pointerdown.prevent="onPointerDown"
-      @pointermove.prevent="onPointerMove"
+      class="cropper__view"
+      :class="{ 'cropper__view--has-image': !!imageUrl }"
+      @pointerdown.prevent="handlePointerDown"
+      @pointermove.prevent="handlePointerMove"
     >
       <img
         v-if="imageUrl"
         :src="imageUrl"
         ref="imgEl"
-        class="image"
-        alt="Uploaded"
+        class="cropper__image"
+        alt="Uploaded image for cropping"
       />
+
       <div
-        v-if="selection.width > 0 && selection.height > 0"
-        class="selection"
-        :style="{
-          left: selection.x + 'px',
-          top: selection.y + 'px',
-          width: selection.width + 'px',
-          height: selection.height + 'px',
-        }"
-      ></div>
+        v-if="hasValidSelection"
+        class="cropper__selection"
+        :style="selectionStyle"
+      />
+
+      <div v-if="!imageUrl" class="cropper__empty-state">
+        <p>Загрузите изображение для начала работы</p>
+      </div>
     </div>
 
-    <div v-if="selection.height && selection.width">
-      x: {{ selection.x }}, y: x: {{ selection.y }} w: {{ selection.width }}, h:
-      {{ selection.height }}
+    <div v-if="hasValidSelection" class="cropper__info">
+      <span class="cropper__info-label">Координаты:</span>
+      <span class="cropper__info-value">
+        X: {{ Math.round(selection.x) }}, Y: {{ Math.round(selection.y) }}
+      </span>
+      <span class="cropper__info-separator">|</span>
+      <span class="cropper__info-label">Размер:</span>
+      <span class="cropper__info-value">
+        W: {{ Math.round(selection.width) }}, H:
+        {{ Math.round(selection.height) }}
+      </span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { ref, computed } from "vue";
+import { useImageUpload } from "@/composables/useImageUpload";
+import { useSelection } from "@/composables/useSelection";
+import { usePointerEvents } from "@/composables/usePointerEvents";
 
-type Rect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type Point = {
-  x: number;
-  y: number;
-};
-
-const imageUrl = ref<string | null>(null);
+const viewEl = ref<HTMLElement | null>(null);
 const imgEl = ref<HTMLImageElement | null>(null);
-const viewEl = ref<HTMLDivElement | null>(null);
 
-const moveStart = ref<Point | null>(null);
-const isMoving = ref(false);
-const selection = ref<Rect>({ x: 0, y: 0, width: 0, height: 0 });
+const { imageUrl, error, handleFileChange } = useImageUpload();
 
-function onFileChange(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files && input.files[0];
+const { selection, hasValidSelection, startSelection, updateSelection } =
+  useSelection();
 
-  if (!file) return;
+const { handlePointerDown, handlePointerMove } = usePointerEvents(
+  viewEl,
+  (point) => {
+    if (imageUrl.value) {
+      startSelection(point);
+    }
+  },
+  (point) => {
+    updateSelection(point);
+  }
+);
 
-  if (imageUrl.value) URL.revokeObjectURL(imageUrl.value);
-  imageUrl.value = URL.createObjectURL(file);
-}
-
-function getRelativePoint(clientX: number, clientY: number) {
-  if (!viewEl.value) return { x: 0, y: 0 };
-  const rect = viewEl.value.getBoundingClientRect();
-
-  const x = clientX - rect.left;
-  const y = clientY - rect.top;
-
-  return { x, y };
-}
-
-function onPointerDown(event: PointerEvent) {
-  if (!imageUrl.value) return;
-  const { x, y } = getRelativePoint(event.clientX, event.clientY);
-  isMoving.value = true;
-
-  moveStart.value = { x, y };
-  selection.value.x = x;
-  selection.value.y = y;
-  selection.value.width = 0;
-  selection.value.height = 0;
-}
-
-function onPointerMove(event: PointerEvent) {
-  if (!isMoving.value || !moveStart.value) return;
-  const { x, y } = getRelativePoint(event.clientX, event.clientY);
-
-  selection.value.x = Math.min(moveStart.value.x, x);
-  selection.value.y = Math.min(moveStart.value.y, y);
-  selection.value.width = Math.abs(x - moveStart.value.x);
-  selection.value.height = Math.abs(y - moveStart.value.y);
-}
-
-function onPointerUp() {
-  if (!isMoving.value) return;
-  isMoving.value = false;
-  moveStart.value = null;
-
-  console.log("Coords", { ...selection.value });
-}
-
-onMounted(() => {
-  window.addEventListener("pointerup", onPointerUp);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("pointerup", onPointerUp);
-});
+const selectionStyle = computed(() => ({
+  left: `${selection.value.x}px`,
+  top: `${selection.value.y}px`,
+  width: `${selection.value.width}px`,
+  height: `${selection.value.height}px`,
+}));
 </script>
 
 <style scoped>
 .cropper {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 50rem;
 }
 
-.upload input[type="file"] {
+.cropper__upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cropper__upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.cropper__file-input {
   display: none;
 }
 
-.upload span {
-  padding: 8px 12px;
+.cropper__button-text {
+  padding: 0.625rem 1rem;
   background: #41ffdc;
-  color: black;
-  cursor: pointer;
-  border-radius: 12px;
+  color: #000;
+  font-weight: 500;
+  border-radius: 0.75rem;
+  user-select: none;
+  transition: 0.2s ease;
 }
 
-.view {
+.cropper__button-text:hover {
+  box-shadow: 0 4px 8px rgba(65, 255, 220, 0.3);
+  background-color: rgb(71, 209, 184);
+}
+
+.cropper__error {
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.cropper__view {
   position: relative;
   width: 100%;
-  max-width: 800px;
-  min-height: 300px;
-  background: white;
-  border: 1px solid #d6d6d6;
-  border-radius: 8px;
+  min-height: 18.75rem;
+  background-color: #282828;
+  border: 2px dashed #4f4f4f;
+  box-sizing: border-box;
+  border-radius: 0.5rem;
   overflow: hidden;
+  transition: border-color 0.3s ease;
 }
 
-.image {
+.cropper__view--has-image {
+  border-style: solid;
+  border-color: #41ffdc;
+}
+
+.cropper__view:hover {
+  border-color: #41ffdc;
+}
+
+.cropper__image {
+  display: block;
   max-width: 100%;
   height: auto;
+  user-select: none;
+  pointer-events: none;
 }
 
-.selection {
+.cropper__selection {
   position: absolute;
   box-sizing: border-box;
   background: rgba(28, 150, 202, 0.3);
+  border: 2px solid rgba(28, 150, 202, 0.8);
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.cropper__empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  max-width: 70%;
+  margin: 0 auto;
+  min-height: 20rem;
+  color: #9ca3af;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.cropper__empty-state p {
+  margin: 0;
+}
+
+.cropper__info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(65, 255, 220, 0.1);
+  border: 1px solid rgba(65, 255, 220, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-family: "Courier New", monospace;
+}
+
+.cropper__info-label {
+  font-weight: 600;
+  color: #41ffdc;
+}
+
+.cropper__info-value {
+  color: #fff;
+}
+
+.cropper__info-separator {
+  color: #6b7280;
+  margin: 0 0.25rem;
+}
+
+@media (prefers-color-scheme: light) {
+  .cropper__view {
+    background: #f9fafb;
+  }
+
+  .cropper__info-value {
+    color: #1f2937;
+  }
+
+  .cropper__empty-state {
+    color: #6b7280;
+  }
 }
 </style>
